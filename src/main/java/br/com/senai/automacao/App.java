@@ -2,72 +2,80 @@ package br.com.senai.automacao;
 
 import org.eclipse.paho.client.mqttv3.*;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import javax.net.ssl.SSLContext;
+import javax.net.ssl.*;
 import java.security.cert.X509Certificate;
+import java.sql.*;
 
 public class App {
 
-    // ---- CONFIGURAÇÕES MQTT (HiveMQ Cloud - TLS) ----
-    static final String BROKER   = "ssl://8499505b5a944d7fb9741e0ab74b8610.s1.eu.hivemq.cloud:8883";
+    // ---- MQTT ----
+    static final String BROKER    = "ssl://8499505b5a944d7fb9741e0ab74b8610.s1.eu.hivemq.cloud:8883";
     static final String CLIENT_ID = "JavaBackend_Ryhan_Motor";
-    static final String TOPICO   = "senai/ryhan/motor/dados";
-    static final String USUARIO  = "ryhan";
-    static final String SENHA    = "Servidor123";
+    static final String TOPICO    = "senai/ryhan/motor/dados";
+    static final String USUARIO   = "ryhan";
+    static final String SENHA     = "Servidor123";
+
+    // ---- POSTGRESQL ----
+    static final String DB_URL  = "jdbc:postgresql://ep-delicate-cell-ac9rn1t6-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require";
+    static final String DB_USER = "neondb_owner";
+    static final String DB_PASS = "npg_wNG3mtapb1QA";
 
     public static void main(String[] args) throws Exception {
 
-        // Cria cliente MQTT com persistência em memória
+        // Testa conexão com o banco antes de tudo
+        System.out.println("Conectando ao PostgreSQL...");
+        Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+        System.out.println("PostgreSQL OK!");
+
+        // Prepara o INSERT uma vez só, reutiliza a cada leitura
+        PreparedStatement stmt = conn.prepareStatement(
+            "INSERT INTO leituras (temperatura, vibracao, corrente) VALUES (?, ?, ?)"
+        );
+
+        // ---- MQTT ----
         MqttClient client = new MqttClient(BROKER, CLIENT_ID, new MemoryPersistence());
 
-        // ---- OPÇÕES DE CONEXÃO ----
         MqttConnectOptions options = new MqttConnectOptions();
         options.setUserName(USUARIO);
         options.setPassword(SENHA.toCharArray());
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
-
-        // TLS sem validação de certificado (equivalente ao setInsecure() do ESP32)
-        // Em produção: carregar o certificado raiz da HiveMQ
         options.setSocketFactory(criarSSLInseguro());
 
-        // ---- CONECTA ----
-        System.out.println("Conectando ao Broker HiveMQ Cloud (TLS)...");
+        System.out.println("Conectando ao Broker MQTT...");
         client.connect(options);
-        System.out.println("Conectado com sucesso!");
+        System.out.println("MQTT OK!");
 
-        // ---- SUBSCREVE NO TÓPICO ----
         client.subscribe(TOPICO, (topic, msg) -> {
             String payload = new String(msg.getPayload());
+            System.out.println("Dados de Telemetria Coletados com Sucesso: " + payload);
 
-            // Payload esperado: "temp,vibra,corrente"
-            String[] valores = payload.split(",");
+            // Parse do payload "temp,vibra,corrente"
+            String[] v = payload.split(",");
+            if (v.length == 3) {
+                try {
+                    double temp     = Double.parseDouble(v[0].trim());
+                    int    vibra    = Integer.parseInt(v[1].trim());
+                    int    corrente = Integer.parseInt(v[2].trim());
 
-            if (valores.length == 3) {
-                double temp     = Double.parseDouble(valores[0]);
-                int    vibra    = Integer.parseInt(valores[1]);
-                int    corrente = Integer.parseInt(valores[2]);
+                    // Grava no banco
+                    stmt.setDouble(1, temp);
+                    stmt.setInt(2, vibra);
+                    stmt.setInt(3, corrente);
+                    stmt.executeUpdate();
 
-                System.out.println("=== Dados coletados com sucesso ===");
-                System.out.printf("  Temperatura : %.1f °C%n", temp);
-                System.out.printf("  Vibração    : %d mm/s%n", vibra);
-                System.out.printf("  Corrente    : %d A%n", corrente);
-                System.out.println("===================================");
-            } else {
-                System.out.println("Payload inválido recebido: " + payload);
+                    System.out.println("✓ Gravado no banco — T:" + temp + " V:" + vibra + " I:" + corrente);
+
+                } catch (Exception e) {
+                    System.out.println("Erro ao gravar no banco: " + e.getMessage());
+                }
             }
         });
 
-        System.out.println("Aguardando dados do ESP32 no tópico: " + TOPICO);
-
-        // Mantém o programa rodando indefinidamente
+        System.out.println("Aguardando dados no tópico: " + TOPICO);
         Thread.currentThread().join();
     }
 
-    // ---- TLS SEM VALIDAÇÃO DE CERTIFICADO ----
-    // Equivalente ao setInsecure() do WiFiClientSecure no ESP32
     static SSLSocketFactory criarSSLInseguro() throws Exception {
         TrustManager[] trustAll = new TrustManager[]{
             new X509TrustManager() {
