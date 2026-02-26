@@ -1,118 +1,171 @@
-# Supervisão de Máquinas Elétricas via Telemetria MQTT
+<div align="center">
 
-**Curso Técnico em CiberSistemas para Automação — SENAI CentroWEG**  
-Unidade Curricular: Programação para Coleta de Dados em Automação  
-Autor: Ryhan Gabriel Schutz · Turma: T TCPA 2025/1 INT1
+# Do Sensor à Nuvem
+### Telemetria Industrial em Tempo Real
 
----
+![Status](https://img.shields.io/badge/status-operational-000000?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-000000?style=flat-square)
+![Java](https://img.shields.io/badge/Java-17-000000?style=flat-square&logo=openjdk&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-Arduino-000000?style=flat-square&logo=cplusplus&logoColor=white)
+![MQTT](https://img.shields.io/badge/MQTT-TLS%208883-000000?style=flat-square&logo=eclipsemosquitto&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-000000?style=flat-square&logo=postgresql&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Cloud-000000?style=flat-square&logo=grafana&logoColor=white)
 
-## Sobre o projeto
+**SENAI CentroWEG — Jaraguá do Sul, SC**  
+Ryhan Gabriel Schutz · Técnico em CiberSistemas para Automação · 2026
 
-Protótipo de telemetria industrial utilizando ESP32 para coleta de dados de **temperatura**, **vibração** e **corrente** de um motor elétrico simulado, com transmissão via **MQTT sobre canal seguro TLS** e recepção em backend Java.
+</div>
 
 ---
 
 ## Arquitetura
 
-```
-DHT22 + Potenciômetros → ESP32 → MQTT/TLS (8883) → HiveMQ Cloud → Java Backend
-```
+```mermaid
+flowchart LR
+    A[ESP32\nWokwi] -->|MQTT / TLS 8883| B[HiveMQ Cloud]
+    B -->|subscribe| C[Java Backend\nCodespaces]
+    C -->|JDBC / SSL| D[(Neon\nPostgreSQL)]
+    D -->|SQL query| E[Grafana Cloud\nDashboard]
 
-| Camada | Tecnologia |
-|---|---|
-| Firmware | C++ / Arduino Framework (ESP32) |
-| Protocolo | MQTT v3.1.1 — TLS porta 8883 |
-| Broker | HiveMQ Cloud (Free Tier) |
-| Backend | Java 17 + Maven + Eclipse Paho |
-| Simulação | Wokwi |
-
----
-
-## Hardware (Pinagem ESP32)
-
-| Componente | GPIO | Função |
-|---|---|---|
-| DHT22 | 15 | Temperatura (°C) |
-| Potenciômetro 1 | 34 | Vibração simulada (mm/s) |
-| Potenciômetro 2 | 35 | Corrente simulada (A) |
-| LCD 16x2 I2C | SDA→21 / SCL→22 | Display local |
-| LED Verde | 12 | Indicador de envio ativo |
-
----
-
-## Estrutura do repositório
-
-```
-├── firmware/
-│   └── firmware_motor_ryhan.ino   # Código C++ ESP32
-├── src/
-│   └── main/java/br/com/senai/automacao/
-│       └── App.java               # Backend Java
-├── pom.xml                        # Dependências Maven
-└── README.md
+    style A fill:#000,color:#fff,stroke:#333
+    style B fill:#000,color:#fff,stroke:#333
+    style C fill:#000,color:#fff,stroke:#333
+    style D fill:#000,color:#fff,stroke:#333
+    style E fill:#000,color:#fff,stroke:#333
 ```
 
 ---
 
-## Como executar
+## Stack
 
-### Firmware (Wokwi)
-1. Acesse [wokwi.com](https://wokwi.com) e importe o projeto
-2. Monte o circuito conforme a pinagem acima
-3. Execute a simulação — o ESP32 conecta ao HiveMQ Cloud via TLS e publica a cada 2 segundos
+```mermaid
+graph TD
+    FW[Firmware C++\nArduino Framework]
+    SEC[WiFiClientSecure\nTLS sem CA]
+    PROTO[MQTT v3.1.1\nPubSubClient]
+    BACK[Java 17\nMaven + Paho]
+    DB[PostgreSQL\nNeon Serverless]
+    VIZ[Grafana Cloud\nTime Series]
 
-### Backend Java (GitHub Codespaces ou local)
+    FW --> SEC --> PROTO --> BACK --> DB --> VIZ
+
+    style FW fill:#000,color:#fff,stroke:#444
+    style SEC fill:#000,color:#fff,stroke:#444
+    style PROTO fill:#000,color:#fff,stroke:#444
+    style BACK fill:#000,color:#fff,stroke:#444
+    style DB fill:#000,color:#fff,stroke:#444
+    style VIZ fill:#000,color:#fff,stroke:#444
+```
+
+---
+
+## Pinagem ESP32
+
+```mermaid
+block-beta
+  columns 5
+  A["DHT22\nGPIO 15\nTemperatura"]:1
+  B["Pot. 1\nGPIO 34\nVibração"]:1
+  C["Pot. 2\nGPIO 35\nCorrente"]:1
+  D["LCD I2C\nSDA 21 / SCL 22\nDisplay"]:1
+  E["LED Verde\nGPIO 12\nStatus"]:1
+```
+
+---
+
+## Payload
+
+O ESP32 publica no tópico `senai/ryhan/motor/dados` no formato:
+
+```
+"27.5,42,18"
+ └─┬─┘ └┬┘ └┬┘
+   │    │   └── Corrente (A)
+   │    └─────── Vibração (mm/s)
+   └──────────── Temperatura (°C)
+```
+
+---
+
+## Banco de dados
+
+```sql
+CREATE TABLE leituras (
+    id          SERIAL PRIMARY KEY,
+    timestamp   TIMESTAMPTZ DEFAULT NOW(),
+    temperatura NUMERIC(5,2),
+    vibracao    INTEGER,
+    corrente    INTEGER
+);
+```
+
+---
+
+## Execução
+
+**Firmware**
+
+Importe no Wokwi, monte o circuito e inicie a simulação.
+
+**Backend Java**
+
 ```bash
 mvn compile
 mvn exec:java -Dexec.mainClass="br.com.senai.automacao.App"
 ```
 
-Saída esperada no console:
+**Grafana**
+
+```sql
+SELECT
+  timestamp   AS "time",
+  temperatura AS "Temperatura (°C)",
+  vibracao    AS "Vibração (mm/s)",
+  corrente    AS "Corrente (A)"
+FROM leituras
+WHERE timestamp >= $__timeFrom() AND timestamp <= $__timeTo()
+ORDER BY timestamp ASC;
 ```
-Conectando ao Broker MQTT...
-Conectado!
-Aguardando dados no tópico: senai/ryhan/motor/dados
-Dados de Telemetria Coletados com Sucesso: 27.3,45,18
-```
-
----
-
-## Segurança
-
-O projeto utiliza **TLS na porta 8883** com autenticação por credenciais, em substituição ao broker público sem criptografia. A conexão segura é estabelecida tanto no firmware (`WiFiClientSecure`) quanto no backend (`SSLSocketFactory`).
-
-Em ambiente industrial real, o passo seguinte seria a implantação do **Mosquitto local** com certificados X.509 e autenticação mútua.
 
 ---
 
 ## Dependências
 
-**C++ (Wokwi / Arduino Library Manager)**
-```
-DHT sensor library
-PubSubClient
-LiquidCrystal I2C
-```
-
-**Java (pom.xml)**
 ```xml
 <dependency>
     <groupId>org.eclipse.paho</groupId>
     <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
     <version>1.2.5</version>
 </dependency>
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <version>42.7.3</version>
+</dependency>
 ```
 
 ---
 
-## Referências
+## Segurança
 
-- LAMB, Frank. *Automação Industrial na Prática*. McGraw-Hill / Bookman, 2015.
-- CHAPMAN, Stephen J. *Fundamentos de Máquinas Elétricas*. McGraw-Hill / Bookman, 2013.
-- [Eclipse Paho Java Client](https://www.eclipse.org/paho)
-- [HiveMQ Cloud](https://www.hivemq.com)
-- [Wokwi Simulator](https://wokwi.com)
+Canal TLS na porta 8883 com autenticação por credenciais tanto no ESP32 (`WiFiClientSecure`) quanto no Java (`SSLSocketFactory`). Conexão ao Neon com `sslmode=require`.
+
+Em produção: Mosquitto local com certificados X.509 e autenticação mútua.
 
 ---
 
-*Desenvolvido com auxílio da IA Claude (Anthropic) para estruturação e revisão do código.*
+<div align="center">
+
+![ESP32](https://img.shields.io/badge/ESP32-Espressif-000000?style=for-the-badge&logo=espressif&logoColor=white)
+![HiveMQ](https://img.shields.io/badge/HiveMQ-Cloud-000000?style=for-the-badge&logoColor=white)
+![Neon](https://img.shields.io/badge/Neon-PostgreSQL-000000?style=for-the-badge&logo=postgresql&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Cloud-000000?style=for-the-badge&logo=grafana&logoColor=white)
+![GitHub](https://img.shields.io/badge/GitHub-Codespaces-000000?style=for-the-badge&logo=github&logoColor=white)
+![WEG](https://img.shields.io/badge/WEG-Automação-000000?style=for-the-badge&logoColor=white)
+
+*Código estruturado com auxílio da IA Claude (Anthropic).*  
+*Arquitetura, integração e lógica definidas pelo autor.*
+
+> `Ler → Compreender → Fazer.`
+
+</div>
