@@ -28,4 +28,17 @@
             <version>42.7.3</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.0.0</version>
+                <configuration>
+                    <mainClass>br.com.senai.automacao.App</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
